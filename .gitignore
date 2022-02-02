@@ -1,6 +1,5 @@
 *.geany
 *.o
-elf.h
 gram.c
 gram.h
 gram.out
