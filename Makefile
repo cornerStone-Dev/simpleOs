@@ -16,8 +16,18 @@ SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,obj/%.o,$(SRC))
 INC := $(patsubst src/%.c,inc/%.h,$(SRC))
 
+.PHONY: clean all dirs
 
-all : src/lex.c gram.c $(INC) $(OBJ) program.uf2 
+
+all : dirs src/lex.c gram.c $(INC) $(OBJ) program.uf2 
+
+dirs: inc obj
+
+inc:
+	mkdir inc
+
+obj:
+	mkdir obj
 
 program.uf2 : program.elf picoUF2
 	./picoUF2 program.elf program.uf2
@@ -54,7 +64,7 @@ testRun: all | $(UF2_TARGET_DIR)
 gram.c: tool/lemon gram.y
 	./tool/lemon gram.y -s -p -l
 
-tool/lemon: tool tool/lemon.c tool/lempar.c
+tool/lemon: tool/lemon.c tool/lempar.c
 	gcc -Os tool/lemon.c -o tool/lemon
 
 tool/headerGenerator.c: tool/headerGenerator.re
@@ -68,6 +78,3 @@ obj/%.o: src/%.c
 
 inc/%.h: src/%.c tool/headerGenerator
 	./tool/headerGenerator $<
-
-tool:
-	mkdir tool
