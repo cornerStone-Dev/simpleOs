@@ -5,7 +5,8 @@ XCPU = -mcpu=cortex-m0plus
 
 AOPS = --warn --fatal-warnings $(XCPU)
 COPS = -Wall -Wno-pointer-sign -Os -ffreestanding $(XCPU)
-LOPS = -nostdlib -nostartfiles
+LOPS = -nostdlib
+# -nostartfiles
 #~ LOCAL_TOOL_PATH = ../tool/gcc-arm-none-eabi/bin/
 LOCAL_TOOL_PATH = 
 
@@ -41,11 +42,12 @@ program.elf : memmap.ld start.o $(OBJ) avl.o
 
 clean:
 	rm -f *.o
+	rm -f obj/*.o
 	rm -f *.elf
 	rm -f *.list
 	rm -f *.uf2
 
-start.o : start.s Makefile
+start.o : start.s
 	$(LOCAL_TOOL_PATH)$(ARMGNU)-as $(AOPS) start.s -o start.o
 
 src/lex.c: lex.re
