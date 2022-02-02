@@ -1,0 +1,15 @@
+*.geany
+*.o
+elf.h
+gram.c
+gram.h
+gram.out
+inc/
+obj/
+picoUF2
+program.elf
+program.list
+program.uf2
+tool/headerGenerator
+tool/headerGenerator.c
+tool/lemon

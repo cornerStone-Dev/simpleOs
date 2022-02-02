@@ -14,9 +14,10 @@ DRIVE ?= d
 UF2_TARGET_DIR = /mnt/$(DRIVE)
 SRC := $(wildcard src/*.c)
 OBJ := $(patsubst src/%.c,obj/%.o,$(SRC))
+INC := $(patsubst src/%.c,inc/%.h,$(SRC))
 
 
-all : src/lex.c gram.c $(OBJ) program.uf2 
+all : src/lex.c gram.c $(INC) $(OBJ) program.uf2 
 
 program.uf2 : program.elf picoUF2
 	./picoUF2 program.elf program.uf2
@@ -62,9 +63,11 @@ tool/headerGenerator.c: tool/headerGenerator.re
 tool/headerGenerator: tool/headerGenerator.c
 	gcc tool/headerGenerator.c -o tool/headerGenerator -Os -Wall -Wextra -Wno-pointer-sign
 
-obj/%.o: src/%.c tool/headerGenerator
-	./tool/headerGenerator $<
+obj/%.o: src/%.c
 	$(LOCAL_TOOL_PATH)$(ARMGNU)-gcc $(COPS) -mthumb -c $< -o $@
+
+inc/%.h: src/%.c tool/headerGenerator
+	./tool/headerGenerator $<
 
 tool:
 	mkdir tool
