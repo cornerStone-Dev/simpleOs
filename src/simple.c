@@ -202,10 +202,11 @@ testCompiler(void)/*p;*/
 	simpleCompile(testProgramText2);
 	s32 (*adderf)(s32 x, s32 y) = zalloc(32);
 	u16 *cursor = (u16*)adderf;
-	*cursor++ = armAdd3(0, 0, 1);
-	*cursor++ = armBX(14);
+	cursor[0] = armAdd3(0, 0, 1);
+	cursor[1] = armBX(14);
 	adderf = ((u32)adderf + 1);
 	io_printi(adderf(5, 20));
+	free(cursor);
 }
 
 

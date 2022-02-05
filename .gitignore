@@ -12,3 +12,4 @@ program.uf2
 tool/headerGenerator
 tool/headerGenerator.c
 tool/lemon
+src/lex.c
