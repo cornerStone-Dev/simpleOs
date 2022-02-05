@@ -32,6 +32,7 @@ typedef struct CompilerContext {
 	u32           codeIndex;
 	u32           codeBuffSize;
 	s32           scopeIndex;
+	s32           regHighWater;
 	u8            error;
 	LocalScope    scopes[8];
 } CompilerContext;
@@ -60,7 +61,7 @@ enterScope(void)
 static void
 leaveScope(void)
 {
-	avl_destroy(&c.scopes[c.scopeIndex].symbols);
+	avl_destroy(&c.scopes[c.scopeIndex--].symbols);
 }
 
 
@@ -125,11 +126,20 @@ armAdd3(u32 dest, u32 arg1, u32 arg2)
 	return code;
 }
 
-static void
-armPush(u32 dest, u32 arg1, u32 arg2)
+static u32
+armPush(u32 numVars)
 {
 	u32 code = 0x1800;
-	code += dest + (arg1 << 3) + (arg2 << 6);
+	//~ code += dest + (arg1 << 3) + (arg2 << 6);
+	//~ putMachineCode(code);
+	return code;
+}
+
+static u32
+armMov(u32 numVars)
+{
+	u32 code = 0x1800;
+	//~ code += dest + (arg1 << 3) + (arg2 << 6);
 	//~ putMachineCode(code);
 	return code;
 }
@@ -204,7 +214,7 @@ testCompiler(void)/*p;*/
 	u16 *cursor = (u16*)adderf;
 	cursor[0] = armAdd3(0, 0, 1);
 	cursor[1] = armBX(14);
-	adderf = ((u32)adderf + 1);
+	adderf = (void*)((u32)adderf + 1);
 	io_printi(adderf(5, 20));
 	free(cursor);
 }

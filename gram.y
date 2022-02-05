@@ -50,7 +50,8 @@ func_ident ::= F type(A) IDENT(B).
 	c.scopes[0].regNum = 0;
 	c.codeBuff = zalloc(32);
 	c.codeBuffSize = 16;
-	c.codeIndex = 0;
+	c.codeIndex = 2; // slots for start of the function
+	c.regHighWater = 0;
 	io_prints("func_ident parsed!\n");
 }
 
