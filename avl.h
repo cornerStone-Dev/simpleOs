@@ -49,4 +49,6 @@ avl_deleteIntKey(
 void
 avl_freeAll(avlNode *root);
 
+void avl_destroy(avlNode **rootp);
+
 #endif

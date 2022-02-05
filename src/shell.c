@@ -544,4 +544,10 @@ void shell_init(void)
 		"reboot",     // pointer to string
 		6,  // length of string (255 max)
 		REBOOT );   // value to be stored
+	retNode = avl_insert(
+		&shell.programRoot,   // pointer memory holding address of tree
+		"testp",     // pointer to string
+		5,  // length of string (255 max)
+		testCompiler );   // value to be stored
+		
 }

@@ -138,14 +138,16 @@ typedef struct TokenInfo {
 	u32  lineNumber;
 } TokenInfo;
 
-typedef struct Context {
-	void *mainFunction;
-	u8    error;
-} Context;
+typedef struct {
+	s32  exprType; // must always be first
+	u8  *string;
+	s32  length;
+	u32  lineNumber;
+} Literal;
 
-typedef struct NonTerminal {
-	u32 len;
-	u32 coupled;
+typedef union NonTerminal {
+	TokenInfo tok;
+	Literal   lit;
 } NonTerminal;
 
 typedef struct {

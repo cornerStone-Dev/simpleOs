@@ -747,7 +747,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp += yysize+1;
   yypParser->yytos = yymsp;
   yymsp->stateno = yyact;
-  yymsp->minor.yy0.tokenType = yygoto;
+  //~ yymsp->minor.yy0.tokenType = yygoto;
   yyTraceShift(yypParser, yyact, "... then shift");
   return yyact;
 }

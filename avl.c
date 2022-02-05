@@ -381,3 +381,21 @@ avl_freeAll(avlNode *root)
 	avl_freeAll(root->next[1]);
 	AVL_FREE(root);
 }
+
+
+static void avl_destroyr(avlNode *root)
+{
+	if (root == 0) { return; }
+	avl_destroyr(root->next[0]);
+	avl_destroyr(root->next[1]);
+	AVL_FREE(root->value);
+	AVL_FREE(root);
+}
+
+void avl_destroy(avlNode **rootp)
+{
+	avlNode *root = *rootp;
+	if (root == 0) { return; }
+	*rootp = 0;
+	avl_destroyr(root);
+}

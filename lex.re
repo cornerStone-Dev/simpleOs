@@ -33,6 +33,72 @@
 
 #define COMMENT_TOKEN -2
 
+
+static s32 lexIdent(u8 *YYCURSOR, s32 length)
+{
+	//~ u8 *YYCURSOR = sourceCode;
+	u8 *YYMARKER;
+	
+switch (length)
+{
+	case 1:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	"f" { return F; }
+	*/                                  // end of re2c block
+	case 2:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	"u8" { return U8; }
+	"if" { return IF; }
+	*/                                  // end of re2c block
+	case 3:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	"s32" { return S32; }
+	*/                                  // end of re2c block
+	case 4:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	*/                                  // end of re2c block
+	case 5:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	*/                                  // end of re2c block
+	case 6:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	"return" { return RETURN; }
+	"struct" { return STRUCT; }
+	*/                                  // end of re2c block
+	case 7:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	*/                                  // end of re2c block
+	case 8:
+	/*!re2c                            // start of re2c block **/
+	re2c:define:YYCTYPE = "u8";
+	re2c:yyfill:enable  = 0;
+	* { return IDENT; }
+	*/                                  // end of re2c block
+	default: return IDENT;
+}
+}
+
 /*e*/
 u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 {
@@ -78,6 +144,51 @@ u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 		return YYCURSOR;
 	}
 	
+	"," {
+		t->tokenType = COMMA;
+		return YYCURSOR;
+	}
+	
+	"+" {
+		t->tokenType = PLUS;
+		return YYCURSOR;
+	}
+
+	"-" {
+		t->tokenType = SUBT;
+		return YYCURSOR;
+	}
+
+	">" {
+		t->tokenType = GT;
+		return YYCURSOR;
+	}
+
+	"=" {
+		t->tokenType = ASSIGN;
+		return YYCURSOR;
+	}
+	
+	"(" {
+		t->tokenType = LPAREN;
+		return YYCURSOR;
+	}
+	
+	")" {
+		t->tokenType = RPAREN;
+		return YYCURSOR;
+	}
+	
+	"{" {
+		t->tokenType = LBLOCK;
+		return YYCURSOR;
+	}
+	
+	"}" {
+		t->tokenType = RBLOCK;
+		return YYCURSOR;
+	}
+	
 	integer {
 		t->tokenType = INTEGER;
 		t->length    = s2i(start);
@@ -89,6 +200,13 @@ u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 		start++;
 		t->string = start;
 		t->length = YYCURSOR - start - 1;
+		return YYCURSOR;
+	}
+	
+	ident {
+		t->string    = start;
+		t->length    = YYCURSOR - start;
+		t->tokenType = lexIdent(start, YYCURSOR - start);
 		return YYCURSOR;
 	}
 	
