@@ -10,6 +10,7 @@ static void txByte(u32 byte)
 {
 	// TODO add optional recursive call to deal with /r/n sequence
 	Uart0MemMap *uart = (void*)UART0_BASE;
+	printAgain:
 	// check if print buffer is full
 	if (((uart0WriteIndex+1)&(SIZE_PRINT_BUFF-1)) == uart0ReadIndex)
 	{
@@ -27,6 +28,7 @@ static void txByte(u32 byte)
 		uart->data = uart0CircularBuffer[uart0ReadIndex++];
 		uart0ReadIndex &= SIZE_PRINT_BUFF - 1;
 	}
+	if (byte == '\n') { byte = '\r'; goto printAgain; }
 }
 
 /*e*/

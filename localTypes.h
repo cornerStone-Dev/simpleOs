@@ -132,14 +132,14 @@ typedef struct ProcessInfo {
 } ProcessInfo;
 
 typedef struct TokenInfo {
-	s32  tokenType;
+	s32  type;
 	u8  *string;
 	s32  length;
 	u32  lineNumber;
 } TokenInfo;
 
 typedef struct {
-	s32  exprType; // must always be first
+	s32  type; // must always be first
 	u8  *string;
 	s32  length;
 	u32  lineNumber;

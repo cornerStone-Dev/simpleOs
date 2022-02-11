@@ -223,7 +223,7 @@ struct yyParser {
 };
 typedef struct yyParser yyParser;
 
-#include <assert.h>
+//~ #include <assert.h>
 #ifndef NDEBUG
 #include <stdio.h>
 static FILE *yyTraceFILE = 0;
@@ -415,10 +415,10 @@ static void yy_pop_parser_stack(yyParser *pParser){
   if( yyTraceFILE ){
     fprintf(yyTraceFILE,"%sPopping %s\n",
       yyTracePrompt,
-      yyTokenName[yytos->yy0.tokenType]);
+      yyTokenName[yytos->yy0.type]);
   }
 #endif
-  yy_destructor(pParser, yytos->minor.yy0.tokenType, &yytos->minor);
+  yy_destructor(pParser, yytos->minor.yy0.type, &yytos->minor);
 }
 
 /*
@@ -624,11 +624,11 @@ static void yyTraceShift(yyParser *yypParser, int yyNewState, const char *zTag){
   if( yyTraceFILE ){
     if( yyNewState<YYNSTATE ){
       fprintf(yyTraceFILE,"%s%s '%s', go to state %d\n",
-         yyTracePrompt, zTag, yyTokenName[yypParser->yytos->yy0.tokenType],
+         yyTracePrompt, zTag, yyTokenName[yypParser->yytos->yy0.type],
          yyNewState);
     }else{
       fprintf(yyTraceFILE,"%s%s '%s', pending reduce %d\n",
-         yyTracePrompt, zTag, yyTokenName[yypParser->yytos->yy0.tokenType],
+         yyTracePrompt, zTag, yyTokenName[yypParser->yytos->yy0.type],
          yyNewState - YY_MIN_REDUCE);
     }
   }
@@ -674,7 +674,7 @@ static void yy_shift(
   }
   yytos = yypParser->yytos;
   yytos->stateno = yyNewState;
-  //yytos->yy0.tokenType = yyMajor;
+  //yytos->yy0.type = yyMajor;
   yytos->minor.yy0 = *yyMinor;
   yyTraceShift(yypParser, yyNewState, "Shift");
 }
@@ -747,7 +747,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp += yysize+1;
   yypParser->yytos = yymsp;
   yymsp->stateno = yyact;
-  //~ yymsp->minor.yy0.tokenType = yygoto;
+  //~ yymsp->minor.yy0.type = yygoto;
   yyTraceShift(yypParser, yyact, "... then shift");
   return yyact;
 }
@@ -970,7 +970,7 @@ static void Parse(
       if( yypParser->yyerrcnt<0 ){
         yy_syntax_error(yypParser,yymajor,yyminor);
       }
-      yymx = yypParser->yytos->minor.yy0.tokenType;
+      yymx = yypParser->yytos->minor.yy0.type;
       if( yymx==YYERRORSYMBOL || yyerrorhit ){
 #ifndef NDEBUG
         if( yyTraceFILE ){
@@ -1044,7 +1044,7 @@ static void Parse(
     char cDiv = '[';
     fprintf(yyTraceFILE,"%sReturn. Stack=",yyTracePrompt);
     for(i=&yypParser->yystack[1]; i<=yypParser->yytos; i++){
-      fprintf(yyTraceFILE,"%c%s", cDiv, yyTokenName[i->minor.yy0.tokenType]);
+      fprintf(yyTraceFILE,"%c%s", cDiv, yyTokenName[i->minor.yy0.type]);
       cDiv = ' ';
     }
     fprintf(yyTraceFILE,"]\n");

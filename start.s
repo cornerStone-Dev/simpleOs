@@ -413,7 +413,7 @@ flashEntry:
 	;@ set up DMA to clear RAM
 	bl   dmaSetup
 	ldr  r0, = __bss_start__
-	ldr  r1, = END_OF_RAM
+	ldr  r1, = __bss_end__  ;@END_OF_RAM
 	subs r1, r0
 	bl   setZero
 	;@ configure vector table
@@ -656,9 +656,9 @@ configUART:
 	;@~ tst r1, r3
 	;@~ beq 1b
 	
-	movs r3, r4
+	;@~ movs r3, r4
 	
-	;@~ ldr r4,=DMA_BASE ;@ base reg
+	ldr r4,=DMA_BASE ;@ base reg
 	;@~ str r3,[r4, #DMA0_READ] 
 	;@~ ldr r1, =DMA_READ_BUFFER
 	;@~ str r1,[r4, #DMA0_WRITE]

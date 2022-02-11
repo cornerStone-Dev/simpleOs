@@ -331,6 +331,10 @@ static void edit_printScreen(void)
 	u32 printStartCursor = edit_getPrintStart(start, &printCursorRow);
 	// get end
 	u32 printEndCursor = edit_getPrintEnd(edit.cursor);
+	io_prints("cursorS");
+	io_printi(printStartCursor);
+	io_prints("cursorE");
+	io_printi(printEndCursor);
 	// move cursor correctly
 	io_prints("\x1B[");
 	io_printi(printCursorRow);

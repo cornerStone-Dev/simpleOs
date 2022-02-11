@@ -115,20 +115,20 @@ u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 	re2c:yyfill:enable  = 0;
 
 	* {
-		t->tokenType = 0;
+		t->type = 0;
 		io_printi(t->lineNumber);
 		io_prints(" :lexical error\n");
 		return 0;
 	}
 	[\x00] {
-		t->tokenType = 0;
+		t->type = 0;
 		return YYCURSOR - 1;
 	}
 	
 	wsp { goto loop; }
 	
 	scm {
-		t->tokenType = COMMENT_TOKEN;
+		t->type = COMMENT_TOKEN;
 		t->string = start;
 		t->length = YYCURSOR - start;
 		return YYCURSOR;
@@ -140,63 +140,63 @@ u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 	}
 	
 	";" {
-		t->tokenType = SEMI;
+		t->type = SEMI;
 		return YYCURSOR;
 	}
 	
 	"," {
-		t->tokenType = COMMA;
+		t->type = COMMA;
 		return YYCURSOR;
 	}
 	
 	"+" {
-		t->tokenType = PLUS;
+		t->type = PLUS;
 		return YYCURSOR;
 	}
 
 	"-" {
-		t->tokenType = SUBT;
+		t->type = SUBT;
 		return YYCURSOR;
 	}
 
 	">" {
-		t->tokenType = GT;
+		t->type = GT;
 		return YYCURSOR;
 	}
 
 	"=" {
-		t->tokenType = ASSIGN;
+		t->type = ASSIGN;
 		return YYCURSOR;
 	}
 	
 	"(" {
-		t->tokenType = LPAREN;
+		t->type = LPAREN;
 		return YYCURSOR;
 	}
 	
 	")" {
-		t->tokenType = RPAREN;
+		t->type = RPAREN;
 		return YYCURSOR;
 	}
 	
 	"{" {
-		t->tokenType = LBLOCK;
+		t->type = LBLOCK;
 		return YYCURSOR;
 	}
 	
 	"}" {
-		t->tokenType = RBLOCK;
+		t->type = RBLOCK;
 		return YYCURSOR;
 	}
 	
 	integer {
-		t->tokenType = INTEGER;
+		t->type = INTEGER;
 		t->length    = s2i(start);
 		return YYCURSOR;
 	}
 	
 	string_lit {
-		t->tokenType = STRING_LIT;
+		t->type = STRING_LIT;
 		start++;
 		t->string = start;
 		t->length = YYCURSOR - start - 1;
@@ -206,7 +206,7 @@ u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 	ident {
 		t->string    = start;
 		t->length    = YYCURSOR - start;
-		t->tokenType = lexIdent(start, YYCURSOR - start);
+		t->type = lexIdent(start, YYCURSOR - start);
 		return YYCURSOR;
 	}
 	

@@ -136,13 +136,13 @@ static void *zalloc_internal(u32 iFullSz, u32 iLogsize)
 	memsys5Unlink(freeNode);
 	
 	// set start to zeros
-	freeNode->next = 0;
-	freeNode->prev = 0;
+	//~ freeNode->next = 0;
+	//~ freeNode->prev = 0;
 
 	// set memory to zero using DMA
 	void *memory = freeNode;
-	//~ setZeroWait();
-	//~ setZero(memory, iFullSz);
+	setZeroWait();
+	setZero(memory, iFullSz);
 	i = ((u32)((u8 *)memory-mem.zPool)/ATOM_SIZE);
 	mem.aCtrl[i] = iLogsize;
 
@@ -173,8 +173,8 @@ static void free_internal(void *pOld)
 	//~ if (pOld==0) { return; }
 	iBlock = ((u32)((u8 *)pOld-mem.zPool)/ATOM_SIZE);
 	iLogsize = ctrlMem[iBlock];
-	setZeroWait();
-	setZero(pOld, 1<<iLogsize);
+	//~ setZeroWait();
+	//~ setZero(pOld, 1<<iLogsize);
 	ctrlMem[iBlock] = CTRL_FREE + iLogsize;
 	while(1) {
 		u32 iBuddy;
@@ -257,6 +257,7 @@ void *realloc(void *pPrior, u32 nBytes)/*p;*/
 		os_takeSpinLock(LOCK_COPY_DMA);
 		dmaWordForwardCopy(pPrior, newMemory, copyAmount);
 		os_giveSpinLock(LOCK_COPY_DMA);
+		//~ ut_memCopy(newMemory, pPrior, copyAmount);
 		free(pPrior);
 	}
 	return newMemory;
