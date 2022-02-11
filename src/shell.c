@@ -553,5 +553,9 @@ void shell_init(void)
 		"testp",     // pointer to string
 		5,  // length of string (255 max)
 		testCompiler );   // value to be stored
-		
+	retNode = avl_insert(
+		&shell.programRoot,   // pointer memory holding address of tree
+		"toggleLED",     // pointer to string
+		9,  // length of string (255 max)
+		io_ledToggle );   // value to be stored
 }
