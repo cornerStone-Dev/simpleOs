@@ -195,6 +195,7 @@ void os_programBootStrap(void *bootCode);
 #include "inc/util.h"
 #include "inc/entryPoint.h"
 #include "inc/init.h"
+#include "inc/shell.h"
 
 
 #endif

@@ -10,6 +10,15 @@ typedef void (*ShellProgram)(u8 *in);
 
 static ShellInfo shell;
 
+typedef struct {
+	u8   *name;
+	u32   length;
+	void *function;
+} ShellProgramInfo;
+
+#define SHELL_INFO(A,B) {A, (sizeof A - 1), B},
+
+
 enum {
 	TERM_STATE_NONE,
 	TERM_STATE_ESC1,
@@ -35,7 +44,8 @@ void shell_inputLine(u8 *input)
 	program(input);
 }
 
-void shell_echo(u8 *input)
+/*e*/
+void shell_echo(u8 *input)/*p;*/
 {
 	io_prints("\x1B[31m");
 	io_prints(input + 5);
@@ -494,68 +504,31 @@ void shell_bootstrap(u8 *input)
 	io_prints("bootStrap written to flash.\n");
 }
 
-void shell_init(void)
+static ShellProgramInfo ShellPrograms [] = 
 {
-	avlNode *retNode;
-	(void)retNode;
-	retNode = avl_insert(
+	SHELL_INFO("echo", shell_echo)
+	SHELL_INFO("cat", shell_cat)
+	SHELL_INFO("clear", shell_clear)
+	SHELL_INFO("fill", shell_fill)
+	SHELL_INFO("edit", shell_edit)
+	SHELL_INFO("stringLen", shell_stringLen)
+	SHELL_INFO("persist", shell_persist)
+	SHELL_INFO("bootStrap", shell_bootstrap)
+	SHELL_INFO("memStats", printMemStats)
+	SHELL_INFO("reboot", REBOOT)
+	SHELL_INFO("testp", testCompiler)
+	SHELL_INFO("toggleLED", io_ledToggle)
+};
+
+
+void shell_init(void)
+{	
+	for (s32 i = 0; i < (sizeof ShellPrograms / sizeof ShellPrograms[0]); i++)
+	{
+		avl_insert(
 		&shell.programRoot,   // pointer memory holding address of tree
-		"echo",     // pointer to string
-		4,  // length of string (255 max)
-		shell_echo );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"cat",     // pointer to string
-		3,  // length of string (255 max)
-		shell_cat );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"clear",     // pointer to string
-		5,  // length of string (255 max)
-		shell_clear );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"fill",     // pointer to string
-		4,  // length of string (255 max)
-		shell_fill );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"edit",     // pointer to string
-		4,  // length of string (255 max)
-		shell_edit );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"stringLen",     // pointer to string
-		9,  // length of string (255 max)
-		shell_stringLen );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"persist",     // pointer to string
-		7,  // length of string (255 max)
-		shell_persist );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"bootStrap",     // pointer to string
-		9,  // length of string (255 max)
-		shell_bootstrap );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"memStats",     // pointer to string
-		8,  // length of string (255 max)
-		printMemStats );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"reboot",     // pointer to string
-		6,  // length of string (255 max)
-		REBOOT );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"testp",     // pointer to string
-		5,  // length of string (255 max)
-		testCompiler );   // value to be stored
-	retNode = avl_insert(
-		&shell.programRoot,   // pointer memory holding address of tree
-		"toggleLED",     // pointer to string
-		9,  // length of string (255 max)
-		io_ledToggle );   // value to be stored
+		ShellPrograms[i].name,     // pointer to string
+		ShellPrograms[i].length,  // length of string (255 max)
+		ShellPrograms[i].function );   // value to be stored
+	}
 }
