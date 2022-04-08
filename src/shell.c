@@ -504,6 +504,19 @@ void shell_bootstrap(u8 *input)
 	io_prints("bootStrap written to flash.\n");
 }
 
+void printLit(u8 *input)
+{
+	io_prints("Loading inline lit = ");
+	io_printh(asmLoadLit());
+	io_prints("\n");
+}
+
+void shell_picoFith(u8 *input)
+{
+	fith_init();
+	lineHandler = picoFith;
+}
+
 static ShellProgramInfo ShellPrograms [] = 
 {
 	SHELL_INFO("echo", shell_echo)
@@ -518,6 +531,8 @@ static ShellProgramInfo ShellPrograms [] =
 	SHELL_INFO("reboot", REBOOT)
 	SHELL_INFO("testp", testCompiler)
 	SHELL_INFO("toggleLED", io_ledToggle)
+	SHELL_INFO("lit", printLit)
+	SHELL_INFO("picoFith", shell_picoFith)
 };
 
 

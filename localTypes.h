@@ -26,11 +26,14 @@ void xipSetup(void);
 void configDmaAtl1Data(void *read, void *write, u32 ctrl, void *dma);
 void os_processWrapper(void *arg1, void *arg2, void *entryPoint);
 void REBOOT(void);
+s32  asmLoadLit(void);
 
 extern u32 vector_table[];
 extern u32 __bss_end__[];
 extern u32 __bss_start__[];
 extern u32 boot2Entry[];
+extern u16 fithDiv[];
+extern u16 fithMod[];
 
 #define LOCK_MEMORY_ALLOC  0
 #define LOCK_PROCESS_QUEUE 1
@@ -196,6 +199,7 @@ void os_programBootStrap(void *bootCode);
 #include "inc/entryPoint.h"
 #include "inc/init.h"
 #include "inc/shell.h"
+#include "inc/fith.h"
 
 
 #endif

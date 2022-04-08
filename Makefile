@@ -20,7 +20,7 @@ INC := $(patsubst src/%.c,inc/%.h,$(SRC))
 .PHONY: clean all dirs
 
 
-all : dirs src/lex.c gram.c $(INC) $(OBJ) program.uf2 
+all : dirs src/lex.c src/fith.c gram.c $(INC) $(OBJ) program.uf2 
 
 dirs: inc obj
 
@@ -52,6 +52,9 @@ start.o : start.s
 
 src/lex.c: lex.re
 	re2c -W -i -s lex.re -o src/lex.c
+
+src/fith.c: fith.re
+	re2c -W -i -s fith.re -o src/fith.c
 
 avl.o : avl.c
 	$(LOCAL_TOOL_PATH)$(ARMGNU)-gcc $(COPS) -mthumb -c avl.c -o avl.o

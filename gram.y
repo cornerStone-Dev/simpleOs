@@ -18,7 +18,6 @@ typedef unsigned int   size_t;
 %token_type   {TokenInfo}
 %default_type {NonTerminal}
 
-//~ %default_destructor { (void)yypminor; (void)c; }
 
 program ::= top_level_stmt_list.
 
@@ -34,6 +33,7 @@ func_decl ::= func_ident parameter_decl compound_stmt.
 {
 	io_printi(c.regHighWater);
 	io_prints(" Function parsed!\n");
+	c.currentFunc->startOfFunction = c.codeBuff;
 	// fix up start of function
 	c.codeBuff[0] = armPushFuncStart(c.regHighWater);
 	c.codeBuff[1] = armSubSP(c.regHighWater - 4);
@@ -61,7 +61,7 @@ func_ident ::= F type(A) IDENT(B).
 	c.codeBuffSize = 16;
 	c.codeIndex = 2; // slots for start of the function
 	c.returnIndex = 0;
-	c.stackState = -1;
+	c.stackState = 0;
 	//~ io_prints("func_ident parsed!\n");
 }
 
@@ -141,13 +141,42 @@ stmt_var_decl ::= var_decl(A) SEMI.
 	localDecl(&A);
 }
 
-expr ::= expr ASSIGN expr.
-expr ::= expr(B) PLUS(C) expr(D).
+expr ::= expr(A) ASSIGN expr.
 {
-	simple_binaryOp(&B, &D, C.type); 
+	// look up var in locals
+		avlNode *node = 0;
+		s32 depth = c.scopeIndex;
+		while (depth >= 0 && node == 0)
+		{
+			node = avl_find(c.scopes[depth--].symbols, A.lit.string, A.lit.length);
+		}
+		if (node != 0)
+		{
+			// we found the variable we are looking for as a local
+			LocalVariable *v = node->value;
+			A.lit.type = v->type;
+			storeVar(v->regNum);
+			break;
+		}
+		node = avl_find(c.globals, A.lit.string, A.lit.length);
+		if (node == 0) { io_prints("No symbol found.\n"); break; }
+		// if this is a global symbol it is either a function or a global var
+		// or a type? Several cases here that feed into function calls, casting,
+		// or loading a global
+		io_prints("Global Symbol Detected.\n");
+}
+expr ::= expr PLUS expr.
+{
+	stackAdd(); 
 }
 expr ::= expr SUBT expr.
+{
+	stackSub();
+}
 expr ::= expr GT expr.
+{
+	stackSub();
+}
 expr ::= LPAREN expr RPAREN.
 expr ::= and_expr expr. [AND]
 expr ::= expr args.

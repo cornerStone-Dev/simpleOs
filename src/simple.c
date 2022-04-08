@@ -44,6 +44,12 @@ typedef struct {
 	s32  argType[4];
 } FunctionInfo;
 
+typedef struct {
+	List *next;
+	s32   codeIndex;
+	s32   value;
+} RelativeLoad;
+
 typedef struct CompilerContext {
 	FunctionInfo *currentFunc;
 	avlNode      *globals;
@@ -54,6 +60,7 @@ typedef struct CompilerContext {
 	s32           regHighWater;
 	s32           returnIndex;
 	s32           stackState;
+	RelativeLoad *workList;           
 	u8            error;
 	LocalScope    scopes[8];
 } CompilerContext;
@@ -130,7 +137,6 @@ simple_binaryOp(NonTerminal *left, NonTerminal *right, s32 type)
 		//~ }
 		//~ return;
 	//~ }
-	stackAdd();
 }
 
 static u32
@@ -146,6 +152,28 @@ armAdd3(u32 dest, u32 arg1, u32 arg2)
 {
 	u32 code = 0x1800;
 	code += dest + (arg1 << 3) + (arg2 << 6);
+	io_prints("add r");
+	io_printi(arg1);
+	io_prints(" to r");
+	io_printi(arg2);
+	io_prints(" save to r");
+	io_printi(dest);
+	io_prints("\n");
+	return code;
+}
+
+static u32
+armSub3(u32 dest, u32 arg1, u32 arg2)
+{
+	u32 code = 0x1A00;
+	code += dest + (arg1 << 3) + (arg2 << 6);
+	io_prints("sub r");
+	io_printi(arg1);
+	io_prints(" to r");
+	io_printi(arg2);
+	io_prints(" save to r");
+	io_printi(dest);
+	io_prints("\n");
 	return code;
 }
 
@@ -243,36 +271,58 @@ simpleReturn(void)
 }
 
 static s32
-getTos(s32 stackState)
+sm_getTos(void)
 {
-	if (stackState < 3)
+	if (c.stackState <= 3)
 	{
-		return stackState;
+		return c.stackState - 1;
 	} else {
 		return 3;
 	}
 }
 
 static s32
-popScratch(void)
+sm_getScratch(void)
 {
-	c.stackState--;
-	s32 scratchRegister;
-	if (c.stackState < 3)
+	if (c.stackState <= 4)
 	{
-		// no need to pop is scratch just pop
-		scratchRegister = c.stackState;
-	} else if (c.stackState == 3) {
-		// stack state has gone beyond registers
-		return 0;
+		return c.stackState - 2;
+	} else {
+		return 2;
 	}
-	return scratchRegister;
 }
 
 static void
-stackPush(void)
+sm_restoreScratch(void)
 {
-	c.stackState++;
+	if (c.stackState == 4)
+	{
+		// pop into r2 to restore scratch
+		putMachineCode(armPop(1<<2));
+		io_prints("restore r2 as scratch\n");
+	}
+}
+
+static void
+sm_popScratch(void)
+{
+	if (c.stackState <= 4)
+	{
+		// top of stack is within register state machine, do nothing
+	} else if (c.stackState == 5) {
+		// pop into r2 as the scratch, see restore scratch for second part
+		putMachineCode(armPop(1<<2));
+	} else {
+		// pop into r2 as the scratch
+		putMachineCode(armPop(1<<2));
+	}
+	c.stackState--;
+}
+
+static void
+sm_pushTos(void)
+{
+	// 0 = initial state , 4 = full
 	if (c.stackState <= 3)
 	{
 		// top of stack is within register state machine, do nothing
@@ -285,42 +335,72 @@ stackPush(void)
 		// push r3 (previous TOS) to stack
 		putMachineCode(armPush(1<<3));
 	}
+	c.stackState++;
+}
+
+static void
+sm_popTos(void)
+{
+	// 0 = initial state , 4 = full
+	if (c.stackState <= 4)
+	{
+		// top of stack is within register state machine, do nothing
+	} else if (c.stackState == 5) {
+		// pop r3 to restore TOS
+		putMachineCode(armPop(1<<3));
+		// pop r2 to restore scratch pad register
+		putMachineCode(armPop(1<<2));
+	} else {
+		// pop r3 to restore TOS
+		putMachineCode(armPop(1<<3));
+	}
+	c.stackState--;
 }
 
 /*e*/
 static void
 stackAdd(void)/*i;*/
 {
-	s32 tos1 = getTos(c.stackState);
-	s32 scratch = popScratch();
-	s32 tos2 = getTos(c.stackState);
+	s32 tos1 = sm_getTos();
+	s32 scratch = sm_getScratch();
+	sm_popScratch();
+	s32 tos2 = sm_getTos();
 	putMachineCode(armAdd3(tos2, scratch, tos1));
-	// debug
-	io_prints("add register ");
-	io_printi(tos1);
-	io_prints(" to register ");
-	io_printi(scratch);
-	io_prints(" save to register ");
-	io_printi(tos2);
-	io_prints("\n");
+	sm_restoreScratch();
+}
+
+/*e*/
+static void
+stackSub(void)/*i;*/
+{
+	s32 tos1 = sm_getTos();
+	s32 scratch = sm_getScratch();
+	sm_popScratch();
+	s32 tos2 = sm_getTos();
+	putMachineCode(armSub3(tos2, scratch, tos1));
+	sm_restoreScratch();
 }
 
 static void
 pushVal(s32 val)
 {
-	stackPush();
-	s32 tos = getTos(c.stackState);
+	sm_pushTos();
+	s32 tos = sm_getTos();
 	if (val <= 255 && val>=0)
 	{
 		// small value
 		putMachineCode(armMovImm(tos, val));
 	} else {
-		// deal with larger const
+		// deal with larger const by adding a worklist item
+		RelativeLoad *new = zalloc(sizeof(RelativeLoad));
+		new->codeIndex = c.codeIndex;
+		new->value = val;
+		c.workList = list_append(new, c.workList);
 	}
 	// debug output
 	io_prints("push value ");
 	io_printi(val);
-	io_prints(" to register ");
+	io_prints(" to r");
 	io_printi(tos);
 	io_prints("\n");
 }
@@ -328,8 +408,8 @@ pushVal(s32 val)
 static void
 pushVar(s32 varNum)
 {
-	stackPush();
-	s32 tos = getTos(c.stackState);
+	sm_pushTos();
+	s32 tos = sm_getTos();
 	if (varNum <= 3)
 	{
 		// register var
@@ -338,11 +418,32 @@ pushVar(s32 varNum)
 		// deal with loading from the stack
 	}
 	// debug output
-	io_prints("push variable");
 	//~ io_printsl(A.string, A.length);
-	io_prints(" from varNum ");
+	io_prints("push varNum ");
 	io_printi(varNum);
-	io_prints(" to register ");
+	io_prints(" to r");
+	io_printi(tos);
+	io_prints("\n");
+}
+
+static void
+storeVar(s32 varNum)
+{
+	s32 tos = sm_getTos();
+	if (varNum <= 3)
+	{
+		// register var
+		putMachineCode(armMov(varNum+4, tos));
+	} else {
+		// deal with loading from the stack
+	}
+	sm_popTos();
+	// debug output
+	io_prints("");
+	//~ io_printsl(A.string, A.length);
+	io_prints("store to varNum ");
+	io_printi(varNum);
+	io_prints(" from r");
 	io_printi(tos);
 	io_prints("\n");
 }
@@ -373,11 +474,12 @@ simpleCompile(u8 *sourceCode)/*p;*/
 	if (mainNode)
 	{
 		// a main function was created
-		void *mainFunction = mainNode->value;
+		FunctionInfo *mainFunction = mainNode->value;
+		//~ void *function = mainFunction->startOfFunction;
 		// delete it so other "main" functions can be made
 		avl_delete(&c.globals, "main", 4);
 		// return the pointer to main
-		return (void*)((u32)mainFunction+1);
+		return (void*)((u32)mainFunction->startOfFunction+1);
 	} else {
 		// no main created, return zero
 		return 0;
@@ -385,7 +487,7 @@ simpleCompile(u8 *sourceCode)/*p;*/
 }
 
 static u8 *testProgramText = "f s32\n"
-"add(s32 x, s32 y)\n"
+"main(s32 x, s32 y)\n"
 "{\n"
 "return x + y;\n"
 "}\n";
@@ -393,7 +495,6 @@ static u8 *testProgramText = "f s32\n"
 static u8 *testProgramText2 = "f s32\n"
 "fibbo(s32 n)\n"
 "{\n"
-"n = 2 + 2 + n;\n"
 "if n > 1\n"
 "{\n"
 "n = fibbo(n - 1) + fibbo(n - 2);\n"
@@ -412,14 +513,18 @@ static u8 *testProgramText2 = "f s32\n"
 void
 testCompiler(void)/*p;*/
 {
-	simpleCompile(testProgramText2);
-	s32 (*adderf)(s32 x, s32 y) = zalloc(32);
-	u16 *cursor = (u16*)adderf;
-	cursor[0] = armAdd3(0, 0, 1);
-	cursor[1] = armBX(14);
-	adderf = (void*)((u32)adderf + 1);
-	io_printi(adderf(5, 20));
-	free(cursor);
+	//~ simpleCompile(testProgramText2);
+	//~ s32 (*adderf)(s32 x, s32 y) = zalloc(32);
+	s32 (*adderf)(s32 x, s32 y) = simpleCompile(testProgramText);
+	s32 (*fibbo)(void) = simpleCompile(testProgramText2);
+	//~ io_printh((s32)adderf);
+	//~ u16 *cursor = (u16*)adderf;
+	//~ cursor[0] = armAdd3(0, 0, 1);
+	//~ cursor[1] = armBX(14);
+	//~ adderf = (void*)((u32)adderf + 1);
+	io_printi(adderf(5, 20)); io_prints("\n");
+	io_printi(fibbo()); io_prints("\n");
+	//~ free(cursor);
 }
 
 

@@ -23,6 +23,26 @@ list_append(void *elementp, void *listp)/*p;*/
 	return element;
 }
 
+// add to front of the list
+/*e*/
+void*
+list_prepend(void *elementp, void *listp)/*p;*/
+{
+	List *list    = listp;
+	List *element = elementp;
+	if (list == 0)
+	{
+		// the list is currently empty
+		element->next = element;
+	} else {
+		// the list has 2 or more items
+		element->next = list->next;
+		list->next = element;
+		element = list;
+	}
+	return element;
+}
+
 // remove first from list, needs a List **list
 /*e*/
 void*

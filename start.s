@@ -905,6 +905,44 @@ asmGetDiv: ;@ call right after asmMod
 .balign 2
 .code 16
 .thumb_func
+.global fithDiv
+.type fithDiv, %function
+fithDiv: ;@ r0 = DIVISOR r2 = DIVIDEND
+	push {r1}
+	ldr  r1, = SIO_BASE
+	str  r2, [r1, #SIO_SIGNED_DIVIDEND]
+	str  r0, [r1, #SIO_SIGNED_DIVISOR] ;@ now takes 8 cycles to finish
+	b    1f
+1:  b    1f
+1:  b    1f
+1:  b    1f
+1:
+	ldr  r0, [r1, #SIO_QUOTIENT]
+	pop  {r1}
+	bx   lr
+
+.balign 2
+.code 16
+.thumb_func
+.global fithMod
+.type fithMod, %function
+fithMod: ;@ r0 = DIVIDEND r1 = DIVISOR
+	push {r1}
+	ldr  r1, = SIO_BASE
+	str  r2, [r1, #SIO_SIGNED_DIVIDEND]
+	str  r0, [r1, #SIO_SIGNED_DIVISOR] ;@ now takes 8 cycles to finish
+	b    1f
+1:  b    1f
+1:  b    1f
+1:  b    1f
+1:
+	ldr  r0, [r1, #SIO_REMAINDER]
+	pop  {r1}
+	bx   lr
+
+.balign 2
+.code 16
+.thumb_func
 .global os_processWrapper
 .type os_processWrapper, %function
 os_processWrapper: ;@ (void *arg1, void *arg2, ProcessEntryPoint entryPoint)
@@ -976,6 +1014,36 @@ _getCurrentProcess:
 
 .balign 4
 .ltorg
+
+
+.balign 2
+.code 16
+.thumb_func
+.global asmLoadLit
+.type asmLoadLit, %function
+asmLoadLit:
+	push {lr}
+	bl   _loadLit
+.byte 0x12,0x34,0x56,0x78
+	pop  {pc}
+
+.balign 2
+.code 16
+.thumb_func
+.global _loadLit
+.type _loadLit, %function
+_loadLit:
+	mov  r0, lr
+	subs r0, 1
+	ldrh r1, [r0]
+	adds r0, 2
+	ldrh r2, [r0]
+	lsls r2, 16
+	adds r0, 3
+	mov  lr, r0
+	adds r0, r2, r1
+	bx   lr
+
 
 ;@ ARM implementations for the compiler
 .global __gnu_thumb1_case_uqi
