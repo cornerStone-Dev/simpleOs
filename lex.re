@@ -32,7 +32,7 @@
 */                                   // end of re2c block
 
 #define COMMENT_TOKEN -2
-
+#if 0
 
 static s32 lexIdent(u8 *YYCURSOR, s32 length)
 {
@@ -212,3 +212,5 @@ u8* lex(u8 *sourceCode, TokenInfo *t)/*p;*/
 	
 	*/                                  // end of re2c block
 }
+
+#endif

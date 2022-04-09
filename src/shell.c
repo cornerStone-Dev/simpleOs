@@ -392,7 +392,7 @@ void shell_editLeave(void)
 		edit_insertCharacter('\n');
 	}
 	edit.text[edit.size] = 0;
-	simpleCompile(edit.text);
+	//~ simpleCompile(edit.text);
 }
 
 void shell_edit_processCharacter(u32 input)

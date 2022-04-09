@@ -26,6 +26,8 @@
 // the difference by the symbol type. I may be able to get back on the horse
 // for direct code generation.
 
+#if 0
+
 typedef struct {
 	s32 type;
 	s32 regNum;
@@ -486,6 +488,8 @@ simpleCompile(u8 *sourceCode)/*p;*/
 	}
 }
 
+
+
 static u8 *testProgramText = "f s32\n"
 "main(s32 x, s32 y)\n"
 "{\n"
@@ -508,11 +512,12 @@ static u8 *testProgramText2 = "f s32\n"
 "n = fibbo(20);\n"
 "return n;\n"
 "}\n";
-
+#endif
 /*e*/
 void
 testCompiler(void)/*p;*/
 {
+	#if 0
 	//~ simpleCompile(testProgramText2);
 	//~ s32 (*adderf)(s32 x, s32 y) = zalloc(32);
 	s32 (*adderf)(s32 x, s32 y) = simpleCompile(testProgramText);
@@ -525,6 +530,9 @@ testCompiler(void)/*p;*/
 	io_printi(adderf(5, 20)); io_prints("\n");
 	io_printi(fibbo()); io_prints("\n");
 	//~ free(cursor);
+	#endif
+	io_prints("beep boop\n");
+	
 }
 
 

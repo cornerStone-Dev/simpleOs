@@ -22,6 +22,10 @@ typedef struct FithState {
 	u8       bi;
 	u8       li;
 	u8       insideParams;
+	u8       notLeaf;
+	u8       pad1;
+	u8       pad2;
+	u8       pad3;
 	u32      tosValue;
 	u32     *expressionStackPointer;
 	u32     *expressionStack;
@@ -46,6 +50,8 @@ enum {
 	WORK_NONE,
 	WORK_WORDCALL,
 };
+
+#define ARM_NOP 0xBF00
 
 
 /*!re2c                              // start of re2c block
@@ -81,7 +87,7 @@ enum {
 
 #define WORD_OTHER 0
 #define WORD_EXIT  1
-#define WORD_IF    2
+#define WORD_NEG    2
 
 static s32 builtInWord(u8 *YYCURSOR, s32 length)
 {
@@ -105,6 +111,7 @@ switch (length)
 	re2c:define:YYCTYPE = "u8";
 	re2c:yyfill:enable  = 0;
 	* { return WORD_OTHER; }
+	"neg" { return WORD_NEG; }
 	*/                                  // end of re2c block
 	case 4:
 	/*!re2c                            // start of re2c block **/
@@ -160,8 +167,7 @@ void picoFith(u8 *sourceCode)/*p;*/
 		if (f.codeIndex == 1) { return; }
 		if (f.insideWord) { return; }
 		// assume execute immediately
-		completeWord();
-		fithFunc exec = (fithFunc)((u32)f.codeBuff+1);
+		fithFunc exec = (fithFunc)((u32)completeWord() + 1);
 		long long result = exec(f.tosValue, f.expressionStackPointer);
 		f.tosValue = result;
 		f.expressionStackPointer = (u32*)(u32)(result >> 32);
@@ -182,7 +188,7 @@ void picoFith(u8 *sourceCode)/*p;*/
 		f.codeBuff = zalloc(32);
 		f.codeIndex = 0;
 		f.codeBuffSize = 16;
-		putMachineCode(0);
+		putMachineCode(ARM_NOP);
 		return;
 	}
 	wsp { goto loop; }
@@ -190,9 +196,15 @@ void picoFith(u8 *sourceCode)/*p;*/
 	
 	"+" { stackAdd(); goto loop; }
 	"-" { stackSub(); goto loop; }
+	">>" { stackRS(); goto loop; }
+	"<<" { stackLS(); goto loop; }
 	"*" { stackMul(); goto loop; }
 	"/" { stackDiv(); goto loop; }
 	"%" { stackMod(); goto loop; }
+	"&" { stackAnd(); goto loop; }
+	"|" { stackOr(); goto loop; }
+	"^" { stackXor(); goto loop; }
+	"~" { stackNot(); goto loop; }
 	"&~" { stackBitClear(); goto loop; }
 	
 	"}" { endBlock(); goto loop; }
@@ -205,6 +217,8 @@ void picoFith(u8 *sourceCode)/*p;*/
 		switch (wordType) {
 			case WORD_EXIT:
 			lineHandler = shell_inputLine; return;
+			case WORD_NEG:
+			negTos(); break;
 		}
 		speakWord(start, YYCURSOR - start);
 		goto loop;
@@ -234,7 +248,13 @@ void picoFith(u8 *sourceCode)/*p;*/
 	}
 	
 	var_declaration {
-		createVar(start, YYCURSOR - start - 1);
+		u32 localNum = createVar(start, YYCURSOR - start - 1);
+		setVar(localNum);
+		goto loop;
+	}
+	
+	var_assign {
+		io_prints("assign\n");
 		goto loop;
 	}
 	
@@ -248,7 +268,7 @@ void fith_init(void)/*p;*/
 	f.expressionStackPointer = f.expressionStack;
 	f.codeBuff = zalloc(32);
 	f.codeBuffSize = 16;
-	putMachineCode(0);
+	putMachineCode(ARM_NOP);
 	return;
 }
 
@@ -306,21 +326,22 @@ armMovImm(u32 dest, u32 val)
 	return code;
 }
 
+//~ static u32
+//~ armMov(u32 dest, u32 src)
+//~ {
+	//~ u32 code = 0x4600;
+	//~ code += ((dest>>3)<<7) + ((dest<<29)>>29) + (src << 3);
+	//~ return code;
+//~ }
+
 static u32
 armMov(u32 dest, u32 src)
 {
-	u32 code = 0x4600;
-	code += ((dest>>3)<<7) + ((dest<<29)>>29) + (src << 3);
+	u32 code = 0x0000;
+	code += dest + (src << 3);
 	return code;
 }
 
-static u32
-armSubImm(u32 dest, u32 val)
-{
-	u32 code = 0x3800;
-	code += val + (dest << 8);
-	return code;
-}
 static u32
 armLdrOffset(u32 dest, u32 src, u32 offset)
 {
@@ -338,10 +359,58 @@ armAdd3(u32 dest, u32 arg1, u32 arg2)
 }
 
 static u32
+armAddImm(u32 dest, u32 val)
+{
+	u32 code = 0x3000;
+	code += val + (dest << 8);
+	return code;
+}
+
+static u32
+armSubImm(u32 dest, u32 val)
+{
+	u32 code = 0x3800;
+	code += val + (dest << 8);
+	return code;
+}
+
+static u32
 armSub3(u32 dest, u32 arg1, u32 arg2)
 {
 	u32 code = 0x1A00;
 	code += dest + (arg1 << 3) + (arg2 << 6);
+	return code;
+}
+
+static u32
+armLslsImm(u32 dest, u32 src, u32 val)
+{
+	u32 code = 0x0000;
+	code += dest + (src << 3) + (val << 6);
+	return code;
+}
+
+static u32
+armLsls(u32 dest, u32 arg1)
+{
+	u32 code = 0x4080;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armLsrsImm(u32 dest, u32 src, u32 val)
+{
+	u32 code = 0x0800;
+	code += dest + (src << 3) + (val << 6);
+	return code;
+}
+
+static u32
+armLsrs(u32 dest, u32 arg1)
+{
+	u32 code = 0x40C0;
+	code += dest + (arg1 << 3);
 	return code;
 }
 
@@ -354,10 +423,58 @@ armMul(u32 dest, u32 arg1)
 }
 
 static u32
+armAnd(u32 dest, u32 arg1)
+{
+	u32 code = 0x4000;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armOr(u32 dest, u32 arg1)
+{
+	u32 code = 0x4300;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armXor(u32 dest, u32 arg1)
+{
+	u32 code = 0x4040;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armNot(u32 dest, u32 arg1)
+{
+	u32 code = 0x43C0;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
 armBic(u32 dest, u32 arg1)
 {
 	u32 code = 0x4380;
 	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armNeg(u32 dest, u32 arg1)
+{
+	u32 code = 0x4240;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armBX(u32 reg)
+{
+	u32 code = 0x4700;
+	code += reg << 3;
 	return code;
 }
 
@@ -394,8 +511,16 @@ popLocal(u32 local)/*i;*/
 /*e*/static void
 negTos(void)/*i;*/
 {
-	u32 code = 0x4240;
-	putMachineCode(code);
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 1;
+		u32 src = prevCode>>3;
+		putMachineCode(armNeg(0,src));
+		return;
+	}
+	putMachineCode(armNeg(0, 0));
 }
 
 /*e*/static void
@@ -433,6 +558,24 @@ decrementESP(void)/*i;*/
 /*e*/static void
 stackAdd(void)/*i;*/
 {
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, re-write
+		f.codeIndex -= 2;
+		u32 val = (prevCode<<24)>>24;
+		// TODO can optimize val <= 7 and local to add with load
+		putMachineCode(armAddImm(0, val));
+		return;
+	}
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armAdd3(0,0,src));
+		return;
+	}
 	popScratch();
 	putMachineCode(armAdd3(0,0,2));
 }
@@ -440,44 +583,194 @@ stackAdd(void)/*i;*/
 /*e*/static void
 stackSub(void)/*i;*/
 {
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, re-write
+		f.codeIndex -= 2;
+		u32 val = (prevCode<<24)>>24;
+		// TODO can optimize val <= 7 and local to add with load
+		putMachineCode(armSubImm(0, val));
+		return;
+	}
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armSub3(0,0,src));
+		return;
+	}
 	popScratch();
 	putMachineCode(armSub3(0,2,0));
 }
 
 /*e*/static void
+stackLS(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, re-write
+		f.codeIndex -= 2;
+		u32 val = (prevCode<<24)>>24;
+		putMachineCode(armLslsImm(0, 0, val));
+		return;
+	}
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armLsls(0,src));
+		return;
+	}
+	putMachineCode(armMov(2, 0));
+	popTos();
+	putMachineCode(armLsls(0,2));
+}
+
+/*e*/static void
+stackRS(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, re-write
+		f.codeIndex -= 2;
+		u32 val = (prevCode<<24)>>24;
+		putMachineCode(armLsrsImm(0, 0, val));
+		return;
+	}
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armLsrs(0,src));
+		return;
+	}
+	putMachineCode(armMov(2, 0));
+	popTos();
+	putMachineCode(armLsrs(0,2));
+}
+
+/*e*/static void
 stackMul(void)/*i;*/
 {
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armMul(0,src));
+		return;
+	}
 	popScratch();
 	putMachineCode(armMul(0, 2));
+}
+
+/*e*/static void
+stackAnd(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armAnd(0,src));
+		return;
+	}
+	popScratch();
+	putMachineCode(armAnd(0, 2));
+}
+
+/*e*/static void
+stackOr(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armOr(0,src));
+		return;
+	}
+	popScratch();
+	putMachineCode(armOr(0, 2));
+}
+
+/*e*/static void
+stackXor(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armXor(0,src));
+		return;
+	}
+	popScratch();
+	putMachineCode(armXor(0, 2));
+}
+
+/*e*/static void
+stackNot(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 1;
+		u32 src = prevCode>>3;
+		putMachineCode(armNot(0,src));
+		return;
+	}
+	putMachineCode(armNot(0, 0));
+}
+
+/*e*/static void
+stackCallWord(u32 target)/*i;*/
+{
+	Work *new = zalloc(sizeof(Work));
+	new->workType = WORK_WORDCALL;
+	new->codeIndex = f.codeIndex;
+	putMachineCode(ARM_NOP); putMachineCode(ARM_NOP);
+	new->target = target;
+	f.workList = list_append(new, f.workList);
 }
 
 /*e*/static void
 stackDiv(void)/*i;*/
 {
 	popScratch();
-	Work *new = zalloc(sizeof(Work));
-	new->workType = WORK_WORDCALL;
-	new->codeIndex = f.codeIndex;
-	putMachineCode(0); putMachineCode(0);
-	new->target = (u32)fithDiv;
-	f.workList = list_append(new, f.workList);
+	stackCallWord((u32)fithDiv);
 }
 
 /*e*/static void
 stackMod(void)/*i;*/
 {
 	popScratch();
-	Work *new = zalloc(sizeof(Work));
-	new->workType = WORK_WORDCALL;
-	new->codeIndex = f.codeIndex;
-	putMachineCode(0); putMachineCode(0);
-	new->target = (u32)fithMod;
-	f.workList = list_append(new, f.workList);
+	stackCallWord((u32)fithMod);
 }
 
 /*e*/static void
 stackBitClear(void)/*i;*/
 {
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 2;
+		u32 src = prevCode>>3;
+		putMachineCode(armBic(0,src));
+		return;
+	}
 	putMachineCode(armMov(2, 0));
 	popTos();
 	putMachineCode(armBic(0, 2));
@@ -530,27 +823,26 @@ setVar(u32 localNum)/*i;*/
 	popTos();
 }
 
-/*e*/static void
+/*e*/static u32
 createVar(u8 *word, s32 length)/*i;*/
 {
 	avlNode *node;
-	if (f.li >= 5) { io_prints("Error: Too many locals.\n"); return; }
+	if (f.li >= 5) { io_prints("Error: Too many locals.\n"); return 5; }
 	u32 localNum = f.li++;
 	node = avl_insert(&f.locals, word, length, (void*)localNum);
 	if (node) { io_prints("Warning: redefinition of local.\n"); }
-	node = avl_find(f.locals, word, length);
-	setVar(localNum);
+	return localNum;
 }
 
 /*e*/static void
 endBlock(void)/*i;*/
 {
+	if (f.bi == 0) { io_prints("Error: unmatched '}'.\n"); return; }
 	f.bi--;
 	switch (f.blocks[f.bi].blockType) {
 		case BLOCK_WORD:
 		// button up word and save it off
-		completeWord();
-		fithFunc exec = (fithFunc)((u32)f.codeBuff);
+		;fithFunc exec = (fithFunc)((u32)completeWord());
 		avlNode *node = (avlNode *)f.blocks[f.bi].savedIndex;
 		node->value = exec;
 		f.insideWord = 0;
@@ -558,7 +850,7 @@ endBlock(void)/*i;*/
 		f.codeBuff = zalloc(32);
 		f.codeIndex = 0;
 		f.codeBuffSize = 16;
-		putMachineCode(0);
+		putMachineCode(ARM_NOP);
 		break;
 	}
 }
@@ -566,11 +858,18 @@ endBlock(void)/*i;*/
 /*e*/static void
 endParams(void)/*i;*/
 {
-	while (f.workList)
+	if (f.li)
 	{
-		Work *todo = list_removeFirst(&f.workList);
-		createVar((u8*)todo->codeIndex, todo->target);
-		free(todo);
+		u32 stackOffset = f.li << 2;
+		putMachineCode(armSubImm(1, stackOffset));
+		stackOffset = stackOffset >> 2;
+		u32 i;
+		for (i = 1; i < stackOffset; i++)
+		{
+			putMachineCode(armLdrOffset(i+2, 1, i));
+		}
+		putMachineCode(armMov(i+2, 0));
+		putMachineCode(armLdrOffset(0, 1, 0));
 	}
 	f.insideParams = 0;
 }
@@ -581,22 +880,14 @@ speakWord(u8 *word, s32 length)/*i;*/
 	avlNode *node;
 	if (f.insideParams)
 	{
-		Work *new = zalloc(sizeof(Work));
-		// hijack worklist
-		new->codeIndex = (u32)word;
-		new->target    = (u32)length;
-		f.workList = list_prepend(new, f.workList);
+		createVar(word, length);
 		return;
 	}
 	node = avl_find(f.words, word, length);
 	if (node)
 	{
-		Work *new = zalloc(sizeof(Work));
-		new->workType = WORK_WORDCALL;
-		new->codeIndex = f.codeIndex;
-		putMachineCode(0); putMachineCode(0);
-		new->target = (u32)node->value;
-		f.workList = list_append(new, f.workList);
+		stackCallWord((u32)node->value);
+		f.notLeaf = 1;
 	}
 	node = avl_find(f.locals, word, length);
 	if (node)
@@ -606,9 +897,10 @@ speakWord(u8 *word, s32 length)/*i;*/
 	}
 }
 
-/*e*/static void
+/*e*/static u16*
 completeWord(void)/*i;*/
 {
+	u32 index = f.codeIndex;
 	putMachineCode(armPopFuncEnd(f.li));
 	f.codeBuff[0] = armPushFuncStart(f.li);
 	while (f.workList)
@@ -622,10 +914,22 @@ completeWord(void)/*i;*/
 		}
 		free(todo);
 	}
+	u16 *start;
+	if (f.li || f.notLeaf)
+	{
+		start = &f.codeBuff[0];
+		io_printi(f.codeIndex << 1);
+	} else {
+		// overwrite ending
+		f.codeBuff[index] = armBX(14);
+		start = &f.codeBuff[1];
+		io_printi((f.codeIndex-1) << 1);
+	}
 	// destroy all locals
 	avl_freeAll(f.locals);
 	f.locals = 0;
 	f.li = 0;
-	io_printi(f.codeIndex * 2);
+	f.notLeaf = 0;
 	io_prints(" size of word in bytes.\n");
+	return start;
 }
