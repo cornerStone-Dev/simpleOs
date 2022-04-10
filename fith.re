@@ -18,14 +18,10 @@ typedef struct Work {
 } Work;
 
 typedef struct FithState {
-	u8       insideWord;
 	u8       bi;
 	u8       li;
 	u8       insideParams;
 	u8       notLeaf;
-	u8       pad1;
-	u8       pad2;
-	u8       pad3;
 	u32      tosValue;
 	u32     *expressionStackPointer;
 	u32     *expressionStack;
@@ -44,6 +40,9 @@ static FithState f;
 enum {
 	BLOCK_NONE,
 	BLOCK_WORD,
+	BLOCK_COND,
+	BLOCK_ELSE,
+	BLOCK_WHILE,
 };
 
 enum {
@@ -52,6 +51,13 @@ enum {
 };
 
 #define ARM_NOP 0xBF00
+
+#define COND_BEQ 0x0
+#define COND_BNE 0x1
+#define COND_BGE 0xA
+#define COND_BLT 0xB
+#define COND_BGT 0xC
+#define COND_BLE 0xD
 
 
 /*!re2c                              // start of re2c block
@@ -85,9 +91,12 @@ enum {
 	
 */                                   // end of re2c block
 
-#define WORD_OTHER 0
-#define WORD_EXIT  1
-#define WORD_NEG    2
+enum {
+	WORD_OTHER,
+	WORD_EXIT,
+	WORD_NEG,
+	WORD_WHILE,
+};
 
 static s32 builtInWord(u8 *YYCURSOR, s32 length)
 {
@@ -125,6 +134,7 @@ switch (length)
 	re2c:define:YYCTYPE = "u8";
 	re2c:yyfill:enable  = 0;
 	* { return WORD_OTHER; }
+	"while" { return WORD_WHILE; }
 	*/                                  // end of re2c block
 	case 6:
 	/*!re2c                            // start of re2c block **/
@@ -165,7 +175,7 @@ void picoFith(u8 *sourceCode)/*p;*/
 	* { io_prints("fith: lexical error\n"); return; }
 	[\x00] {
 		if (f.codeIndex == 1) { return; }
-		if (f.insideWord) { return; }
+		if (f.bi) { return; }
 		// assume execute immediately
 		fithFunc exec = (fithFunc)((u32)completeWord() + 1);
 		long long result = exec(f.tosValue, f.expressionStackPointer);
@@ -174,10 +184,10 @@ void picoFith(u8 *sourceCode)/*p;*/
 		u32 *base = f.expressionStack;
 		if (base != f.expressionStackPointer)
 		{
-			base++;
-			while (base != f.expressionStackPointer) {
+			base-=2;
+			while (base >= f.expressionStackPointer) {
 				io_prints("(");
-				io_printi(*base++);
+				io_printi(*base--);
 				io_prints(")");
 			}
 			io_prints("(");
@@ -207,6 +217,15 @@ void picoFith(u8 *sourceCode)/*p;*/
 	"~" { stackNot(); goto loop; }
 	"&~" { stackBitClear(); goto loop; }
 	
+	"=={" { stackCond(COND_BNE); goto loop; }
+	"!={" { stackCond(COND_BEQ); goto loop; }
+	"<{" { stackCond(COND_BGE); goto loop; }
+	"<={" { stackCond(COND_BGT); goto loop; }
+	">{" { stackCond(COND_BLE); goto loop; }
+	">={" { stackCond(COND_BLT); goto loop; }
+	
+	"}else{" { stackElse(); goto loop; }
+	
 	"}" { endBlock(); goto loop; }
 	"){" { endParams(); goto loop; }
 	
@@ -219,6 +238,8 @@ void picoFith(u8 *sourceCode)/*p;*/
 			lineHandler = shell_inputLine; return;
 			case WORD_NEG:
 			negTos(); break;
+			case WORD_WHILE:
+			stackWhile(); break;
 		}
 		speakWord(start, YYCURSOR - start);
 		goto loop;
@@ -254,7 +275,7 @@ void picoFith(u8 *sourceCode)/*p;*/
 	}
 	
 	var_assign {
-		io_prints("assign\n");
+		assignToVar(start, YYCURSOR - start - 1);
 		goto loop;
 	}
 	
@@ -265,6 +286,7 @@ void picoFith(u8 *sourceCode)/*p;*/
 void fith_init(void)/*p;*/
 {
 	f.expressionStack = zalloc(32*4);
+	f.expressionStack = f.expressionStack + 32;
 	f.expressionStackPointer = f.expressionStack;
 	f.codeBuff = zalloc(32);
 	f.codeBuffSize = 16;
@@ -291,7 +313,7 @@ armPop(u32 regBits)/*i;*/
 }
 
 static u32
-armPushFuncStart(s32 numVars)
+setLocalRegsBits(s32 numVars)
 {
 	u32 regBits = 0;
 	for (s32 x = 0; x < numVars; x++)
@@ -299,7 +321,14 @@ armPushFuncStart(s32 numVars)
 		regBits <<= 1;
 		regBits++;
 	}
-	regBits <<= 3;
+	regBits <<= 8 - numVars;
+	return regBits;
+}
+
+static u32
+armPushFuncStart(s32 numVars)
+{
+	u32 regBits = setLocalRegsBits(numVars);
 	regBits += (1<<8);
 	return armPush(regBits);
 }
@@ -307,13 +336,7 @@ armPushFuncStart(s32 numVars)
 static u32
 armPopFuncEnd(s32 numVars)
 {
-	u32 regBits = 0;
-	for (s32 x = 0; x < numVars; x++)
-	{
-		regBits <<= 1;
-		regBits++;
-	}
-	regBits <<= 3;
+	u32 regBits = setLocalRegsBits(numVars);
 	regBits += (1<<8);
 	return armPop(regBits);
 }
@@ -347,6 +370,22 @@ armLdrOffset(u32 dest, u32 src, u32 offset)
 {
 	u32 code = 0x6800;
 	code += dest + (src << 3) + (offset << 6);
+	return code;
+}
+
+static u32
+armLdm(u32 src, u32 regBits)
+{
+	u32 code = 0xC800;
+	code += regBits + (src << 8);
+	return code;
+}
+
+static u32
+armStrOffset(u32 src, u32 dest, u32 offset)
+{
+	u32 code = 0x6000;
+	code += src + (dest << 3) + (offset << 6);
 	return code;
 }
 
@@ -415,6 +454,14 @@ armLsrs(u32 dest, u32 arg1)
 }
 
 static u32
+armAsrsImm(u32 dest, u32 src, u32 val)
+{
+	u32 code = 0x1000;
+	code += dest + (src << 3) + (val << 6);
+	return code;
+}
+
+static u32
 armMul(u32 dest, u32 arg1)
 {
 	u32 code = 0x4340;
@@ -478,35 +525,55 @@ armBX(u32 reg)
 	return code;
 }
 
+static u32
+armCond(u32 cond, s32 imm)
+{
+	u32 code = 0xD000;
+	code += ((imm<<24)>>24) + (cond << 8);
+	return code;
+}
+
+static u32
+armBranch(u32 imm)
+{
+	u32 code = 0xE000;
+	code += (imm<<21)>>21;
+	return code;
+}
+
 // Section Logical Instruction
 
 /*e*/static void
 pushTos(void)/*i;*/
 {
-	u32 code = 0xC101;
-	putMachineCode(code);
+	decrementESP();
+	putMachineCode(armStrOffset(0, 1, 0));
+	//~ u32 code = 0xC101;
+	//~ putMachineCode(code);
 }
 
 /*e*/static void
 popTos(void)/*i;*/
 {
-	decrementESP();
-	putMachineCode(armLdrOffset(0, 1, 0));
+	putMachineCode(armLdm(1, (1<<0)));
+	//~ decrementESP();
+	//~ putMachineCode(armLdrOffset(0, 1, 0));
 }
 
 /*e*/static void
 popScratch(void)/*i;*/
 {
-	decrementESP();
-	putMachineCode(armLdrOffset(2, 1, 0));
+	putMachineCode(armLdm(1, (1<<2)));
+	//~ decrementESP();
+	//~ putMachineCode(armLdrOffset(2, 1, 0));
 }
 
-/*e*/static void
-popLocal(u32 local)/*i;*/
-{
-	decrementESP();
-	putMachineCode(armLdrOffset(local+3, 1, 0));
-}
+//~ /*e*/static void
+//~ popLocal(u32 local)/*i;*/
+//~ {
+	//~ decrementESP();
+	//~ putMachineCode(armLdrOffset(local+3, 1, 0));
+//~ }
 
 /*e*/static void
 negTos(void)/*i;*/
@@ -562,7 +629,7 @@ stackAdd(void)/*i;*/
 	if ( (prevCode>>11) == 4)
 	{
 		// we just pushed a small constant, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 val = (prevCode<<24)>>24;
 		// TODO can optimize val <= 7 and local to add with load
 		putMachineCode(armAddImm(0, val));
@@ -571,7 +638,7 @@ stackAdd(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armAdd3(0,0,src));
 		return;
@@ -587,7 +654,7 @@ stackSub(void)/*i;*/
 	if ( (prevCode>>11) == 4)
 	{
 		// we just pushed a small constant, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 val = (prevCode<<24)>>24;
 		// TODO can optimize val <= 7 and local to add with load
 		putMachineCode(armSubImm(0, val));
@@ -596,7 +663,7 @@ stackSub(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armSub3(0,0,src));
 		return;
@@ -612,7 +679,7 @@ stackLS(void)/*i;*/
 	if ( (prevCode>>11) == 4)
 	{
 		// we just pushed a small constant, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 val = (prevCode<<24)>>24;
 		putMachineCode(armLslsImm(0, 0, val));
 		return;
@@ -620,7 +687,7 @@ stackLS(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armLsls(0,src));
 		return;
@@ -637,7 +704,7 @@ stackRS(void)/*i;*/
 	if ( (prevCode>>11) == 4)
 	{
 		// we just pushed a small constant, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 val = (prevCode<<24)>>24;
 		putMachineCode(armLsrsImm(0, 0, val));
 		return;
@@ -645,7 +712,7 @@ stackRS(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armLsrs(0,src));
 		return;
@@ -662,7 +729,7 @@ stackMul(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armMul(0,src));
 		return;
@@ -678,7 +745,7 @@ stackAnd(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armAnd(0,src));
 		return;
@@ -694,7 +761,7 @@ stackOr(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armOr(0,src));
 		return;
@@ -710,7 +777,7 @@ stackXor(void)/*i;*/
 	if ( ((prevCode>>6) == 0x00) )
 	{
 		// we just pushed a local, re-write
-		f.codeIndex -= 2;
+		f.codeIndex -= 3;
 		u32 src = prevCode>>3;
 		putMachineCode(armXor(0,src));
 		return;
@@ -740,6 +807,8 @@ stackCallWord(u32 target)/*i;*/
 	Work *new = zalloc(sizeof(Work));
 	new->workType = WORK_WORDCALL;
 	new->codeIndex = f.codeIndex;
+	// TODO check for locals being loaded and re-write the chain
+	// on 5 argument function thisj could save 8 instructions(16 bytes)
 	putMachineCode(ARM_NOP); putMachineCode(ARM_NOP);
 	new->target = target;
 	f.workList = list_append(new, f.workList);
@@ -748,6 +817,26 @@ stackCallWord(u32 target)/*i;*/
 /*e*/static void
 stackDiv(void)/*i;*/
 {
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, maybe re-write
+		u32 val = (prevCode<<24)>>24;
+		val >>= 1;
+		if ((val) && ((val & (val - 1)) == 0) )
+		{
+			// power of two
+			u32 i = 1;
+			while ( (val&1) == 0)
+			{
+				i++;
+				val >>= 1;
+			}
+			f.codeIndex -= 3;
+			putMachineCode(armAsrsImm(0, 0, i));
+			return;
+		}
+	}
 	popScratch();
 	stackCallWord((u32)fithDiv);
 }
@@ -774,6 +863,44 @@ stackBitClear(void)/*i;*/
 	putMachineCode(armMov(2, 0));
 	popTos();
 	putMachineCode(armBic(0, 2));
+}
+
+/*e*/static void
+stackCond(u32 cond)/*i;*/
+{
+	popTos();
+	if (f.blocks[f.bi-1].blockType == BLOCK_WHILE)
+	{
+		// add in additional info
+		f.blocks[f.bi-1].savedIndex += f.codeIndex << 16;
+		f.blocks[f.bi-1].blockType  += (cond << 8);
+	} else {
+		f.blocks[f.bi].savedIndex = f.codeIndex;
+		f.blocks[f.bi++].blockType  = BLOCK_COND + (cond << 8);
+	}
+	putMachineCode(ARM_NOP);
+}
+
+/*e*/static void
+stackElse(void)/*i;*/
+{
+	if (f.bi == 0) { io_prints("Error: unmatched '}'.\n"); return; }
+	f.bi--;
+	u32 blockType = f.blocks[f.bi].blockType;
+	if ( (blockType & 0xFF) != BLOCK_COND) {io_prints("Error: }else{ not matched to cond.\n"); return; }
+	s32 index = f.blocks[f.bi].savedIndex;
+	// emit unconditional jump to skip else
+	f.blocks[f.bi].savedIndex = f.codeIndex;
+	f.blocks[f.bi++].blockType  = BLOCK_ELSE;
+	putMachineCode(ARM_NOP);
+	f.codeBuff[index] = armCond(blockType>>8, f.codeIndex - (index+2));
+}
+
+/*e*/static void
+stackWhile(void)/*i;*/
+{
+	f.blocks[f.bi].savedIndex  = f.codeIndex;
+	f.blocks[f.bi++].blockType = BLOCK_WHILE;
 }
 
 /*e*/static void
@@ -806,11 +933,10 @@ createWord(u8 *word, s32 length)/*i;*/
 	avlNode *node;
 	node = avl_find(f.globals, word, length);
 	if (node) { io_prints("Error: word has same name as global vairable.\n"); return; }
-	if (f.insideWord) { io_prints("Error: word within a word.\n"); return; }
+	if (f.bi) { io_prints("Error: word within a word.\n"); return; }
 	node = avl_insert(&f.words, word, length, 0);
 	if (node) { io_prints("Warning: redefinition of word.\n"); }
 	node = avl_find(f.words, word, length);
-	f.insideWord = 1;
 	f.blocks[f.bi].savedIndex = (u32)node;
 	f.blocks[f.bi++].blockType  = BLOCK_WORD;
 }
@@ -829,9 +955,19 @@ createVar(u8 *word, s32 length)/*i;*/
 	avlNode *node;
 	if (f.li >= 5) { io_prints("Error: Too many locals.\n"); return 5; }
 	u32 localNum = f.li++;
-	node = avl_insert(&f.locals, word, length, (void*)localNum);
+	localNum = 4-localNum;
+	node = avl_insert(&f.locals, word, length, (void*)(localNum));
 	if (node) { io_prints("Warning: redefinition of local.\n"); }
 	return localNum;
+}
+
+/*e*/static void
+assignToVar(u8 *word, s32 length)/*i;*/
+{
+	avlNode *node;
+	node = avl_find(f.locals, word, length);
+	if (node == 0) { io_prints("Error: no local found.\n"); return; }
+	setVar((u32)node->value);
 }
 
 /*e*/static void
@@ -839,19 +975,43 @@ endBlock(void)/*i;*/
 {
 	if (f.bi == 0) { io_prints("Error: unmatched '}'.\n"); return; }
 	f.bi--;
-	switch (f.blocks[f.bi].blockType) {
-		case BLOCK_WORD:
+	u32 blockType = f.blocks[f.bi].blockType;
+	switch (blockType & 0xFF) {
+	case BLOCK_WORD:
+	{
 		// button up word and save it off
 		;fithFunc exec = (fithFunc)((u32)completeWord());
 		avlNode *node = (avlNode *)f.blocks[f.bi].savedIndex;
 		node->value = exec;
-		f.insideWord = 0;
 		// reset code buffer for next usage
 		f.codeBuff = zalloc(32);
 		f.codeIndex = 0;
 		f.codeBuffSize = 16;
 		putMachineCode(ARM_NOP);
 		break;
+	}
+	case BLOCK_COND:
+	{
+		s32 index = f.blocks[f.bi].savedIndex;
+		f.codeBuff[index] = armCond(blockType>>8, f.codeIndex - (index+2));
+		break;
+	}
+	case BLOCK_ELSE:
+	{
+		s32 index = f.blocks[f.bi].savedIndex;
+		f.codeBuff[index] = armBranch(f.codeIndex - (index+2));
+		break;
+	}
+	case BLOCK_WHILE:
+	{
+		u32 rawVal = f.blocks[f.bi].savedIndex;
+		u32 startOfWhile = (rawVal << 16) >> 16;
+		u32 index = rawVal >> 16;
+		putMachineCode(armBranch(startOfWhile - (f.codeIndex+2)));
+		f.codeBuff[index] = armCond(blockType>>8, f.codeIndex - (index+2));
+		break;
+	}
+	
 	}
 }
 
@@ -860,16 +1020,23 @@ endParams(void)/*i;*/
 {
 	if (f.li)
 	{
-		u32 stackOffset = f.li << 2;
-		putMachineCode(armSubImm(1, stackOffset));
-		stackOffset = stackOffset >> 2;
-		u32 i;
-		for (i = 1; i < stackOffset; i++)
+		if (f.li > 1)
 		{
-			putMachineCode(armLdrOffset(i+2, 1, i));
+			u32 regBits = setLocalRegsBits(f.li - 1);
+			putMachineCode(armLdm(1,regBits));
 		}
-		putMachineCode(armMov(i+2, 0));
-		putMachineCode(armLdrOffset(0, 1, 0));
+		putMachineCode(armMov(8-f.li, 0));
+		popTos();
+		//~ u32 stackOffset = f.li << 2;
+		//~ putMachineCode(armSubImm(1, stackOffset));
+		//~ stackOffset = stackOffset >> 2;
+		//~ u32 i;
+		//~ for (i = 1; i < stackOffset; i++)
+		//~ {
+			//~ putMachineCode(armLdrOffset(i+2, 1, i));
+		//~ }
+		//~ putMachineCode(armMov(i+2, 0));
+		//~ putMachineCode(armLdrOffset(0, 1, 0));
 	}
 	f.insideParams = 0;
 }
