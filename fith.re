@@ -869,7 +869,7 @@ stackBitClear(void)/*i;*/
 stackCond(u32 cond)/*i;*/
 {
 	popTos();
-	if (f.blocks[f.bi-1].blockType == BLOCK_WHILE)
+	if (f.bi && f.blocks[f.bi-1].blockType == BLOCK_WHILE)
 	{
 		// add in additional info
 		f.blocks[f.bi-1].savedIndex += f.codeIndex << 16;
