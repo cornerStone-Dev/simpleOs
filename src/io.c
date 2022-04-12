@@ -60,6 +60,24 @@ void io_prints(u8 *string)/*p;*/
 }
 
 /*e*/
+void io_printsn(u8 *string)/*p;*/
+{
+	asm("CPSID i");
+	os_takeSpinLock(LOCK_UART0_OUT);
+	u32 byte = *string++;
+	if (byte != 0)
+	{
+		do {
+			txByte(byte);
+			byte = *string++;
+		} while (byte != 0);
+	}
+	txByte('\n');
+	os_giveSpinLock(LOCK_UART0_OUT);
+	asm("CPSIE i");
+}
+
+/*e*/
 void io_printsl(u8 *string, u32 len)/*p;*/
 {
 	asm("CPSID i");
@@ -86,6 +104,22 @@ void io_printh(s32 in)/*p;*/
 	u8 number[16];
 	i2sh(in, number);
 	io_prints(number);
+}
+
+/*e*/
+void io_printin(s32 in)/*p;*/
+{
+	u8 number[16];
+	i2s(in, number);
+	io_printsn(number);
+}
+
+/*e*/
+void io_printhn(s32 in)/*p;*/
+{
+	u8 number[16];
+	i2sh(in, number);
+	io_printsn(number);
 }
 
 /*e*/

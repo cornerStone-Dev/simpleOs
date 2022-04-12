@@ -17,6 +17,13 @@ typedef struct Work {
 	u32          target;
 } Work;
 
+typedef struct String {
+	struct String *next;
+	u8            *string;
+	u32            length;
+	u32            codeIndex;
+} String;
+
 typedef struct FithState {
 	u8       bi;
 	u8       li;
@@ -32,6 +39,7 @@ typedef struct FithState {
 	avlNode *globals;
 	avlNode *locals;
 	Work    *workList;
+	String  *stringLits;
 	Block    blocks[8];
 } FithState;
 
@@ -80,9 +88,12 @@ enum {
 	word = [a-zA-Z_] [a-zA-Z0-9?!_]*;
 	word_definition = word "{";
 	word_def_params = word "(";
-	var_declaration = word "$";
+	var_declaration = word ";";
 	var_assign = word "=";
-	var_decl_assign = word "$=";
+	var_load_addr = word "$";
+	var_load_addrB = word "$B";
+	var_load_addrH = word "$H";
+	word_address = word "@";
 	const_declaration = word ":=";
 	word_increment = word "++";
 	function_call_addr = "@" word ;
@@ -96,6 +107,15 @@ enum {
 	WORD_EXIT,
 	WORD_NEG,
 	WORD_WHILE,
+	WORD_AND,
+	WORD_DUP,
+	WORD_DROP,
+	WORD_OVER,
+	WORD_SWAP,
+	WORD_ABS,
+	WORD_ALLOC,
+	WORD_FREE,
+	WORD_PS,
 };
 
 static s32 builtInWord(u8 *YYCURSOR, s32 length)
@@ -114,6 +134,7 @@ switch (length)
 	re2c:define:YYCTYPE = "u8";
 	re2c:yyfill:enable  = 0;
 	* { return WORD_OTHER; }
+	"ps" { return WORD_PS; }
 	*/                                  // end of re2c block
 	case 3:
 	/*!re2c                            // start of re2c block **/
@@ -121,6 +142,9 @@ switch (length)
 	re2c:yyfill:enable  = 0;
 	* { return WORD_OTHER; }
 	"neg" { return WORD_NEG; }
+	"and" { return WORD_AND; }
+	"dup" { return WORD_DUP; }
+	"abs" { return WORD_ABS; }
 	*/                                  // end of re2c block
 	case 4:
 	/*!re2c                            // start of re2c block **/
@@ -128,6 +152,10 @@ switch (length)
 	re2c:yyfill:enable  = 0;
 	* { return WORD_OTHER; }
 	"exit" { return WORD_EXIT; }
+	"drop" { return WORD_DROP; }
+	"free" { return WORD_FREE; }
+	"over" { return WORD_OVER; }
+	"swap" { return WORD_SWAP; }
 	*/                                  // end of re2c block
 	case 5:
 	/*!re2c                            // start of re2c block **/
@@ -135,6 +163,7 @@ switch (length)
 	re2c:yyfill:enable  = 0;
 	* { return WORD_OTHER; }
 	"while" { return WORD_WHILE; }
+	"alloc" { return WORD_ALLOC; }
 	*/                                  // end of re2c block
 	case 6:
 	/*!re2c                            // start of re2c block **/
@@ -204,6 +233,11 @@ void picoFith(u8 *sourceCode)/*p;*/
 	wsp { goto loop; }
 	scm { goto loop; }
 	
+	string_lit {
+		stackStringLit(start + 1, YYCURSOR - start - 2);
+		goto loop;
+	}
+	
 	"+" { stackAdd(); goto loop; }
 	"-" { stackSub(); goto loop; }
 	">>" { stackRS(); goto loop; }
@@ -216,9 +250,16 @@ void picoFith(u8 *sourceCode)/*p;*/
 	"^" { stackXor(); goto loop; }
 	"~" { stackNot(); goto loop; }
 	"&~" { stackBitClear(); goto loop; }
+	// memory manipulation
+	"[]" { stackLdr(); goto loop; }
+	"[]=" { stackStr(); goto loop; }
+	"[b]" { stackBitClear(); goto loop; }
+	"[b]=" { stackBitClear(); goto loop; }
+	"[h]" { stackBitClear(); goto loop; }
+	"[h]=" { stackBitClear(); goto loop; }
 	
-	"=={" { stackCond(COND_BNE); goto loop; }
-	"!={" { stackCond(COND_BEQ); goto loop; }
+	"={" { stackCond(COND_BNE); goto loop; }
+	"!{" { stackCond(COND_BEQ); goto loop; }
 	"<{" { stackCond(COND_BGE); goto loop; }
 	"<={" { stackCond(COND_BGT); goto loop; }
 	">{" { stackCond(COND_BLE); goto loop; }
@@ -240,6 +281,24 @@ void picoFith(u8 *sourceCode)/*p;*/
 			negTos(); break;
 			case WORD_WHILE:
 			stackWhile(); break;
+			case WORD_AND:
+			stackLogicAnd(); break;
+			case WORD_DUP:
+			pushTos(); break;
+			case WORD_DROP:
+			popTos(); break;
+			case WORD_OVER:
+			pushTos(); putMachineCode(armLdrOffset(0, 1, 1)); break;
+			case WORD_SWAP:
+			popScratch(); pushTos(); putMachineCode(armMov(0, 2)); break;
+			case WORD_ABS:
+			stackAbs(); break;
+			case WORD_ALLOC:
+			stackAlloc(); break;
+			case WORD_FREE:
+			stackFree(); break;
+			case WORD_PS:
+			stackPs(); break;
 		}
 		speakWord(start, YYCURSOR - start);
 		goto loop;
@@ -357,19 +416,27 @@ armMovImm(u32 dest, u32 val)
 	//~ return code;
 //~ }
 
-static u32
-armMov(u32 dest, u32 src)
+/*e*/static u32
+armMov(u32 dest, u32 src)/*i;*/
 {
 	u32 code = 0x0000;
 	code += dest + (src << 3);
 	return code;
 }
 
-static u32
-armLdrOffset(u32 dest, u32 src, u32 offset)
+/*e*/static u32
+armLdrOffset(u32 dest, u32 src, u32 offset)/*i;*/
 {
 	u32 code = 0x6800;
 	code += dest + (src << 3) + (offset << 6);
+	return code;
+}
+
+static u32
+armLdrIndex(u32 dest, u32 src, u32 index)
+{
+	u32 code = 0x5800;
+	code += dest + (src << 3) + (index << 6);
 	return code;
 }
 
@@ -390,6 +457,14 @@ armStrOffset(u32 src, u32 dest, u32 offset)
 }
 
 static u32
+armStrIndex(u32 src, u32 dest, u32 index)
+{
+	u32 code = 0x5000;
+	code += src + (dest << 3) + (index << 6);
+	return code;
+}
+
+static u32
 armAdd3(u32 dest, u32 arg1, u32 arg2)
 {
 	u32 code = 0x1800;
@@ -402,6 +477,14 @@ armAddImm(u32 dest, u32 val)
 {
 	u32 code = 0x3000;
 	code += val + (dest << 8);
+	return code;
+}
+
+static u32
+armAdr(u32 dest, u32 imm)
+{
+	u32 code = 0xA000;
+	code += imm + (dest << 8);
 	return code;
 }
 
@@ -505,6 +588,14 @@ static u32
 armBic(u32 dest, u32 arg1)
 {
 	u32 code = 0x4380;
+	code += dest + (arg1 << 3);
+	return code;
+}
+
+static u32
+armSbcs(u32 dest, u32 arg1)
+{
+	u32 code = 0x4180;
 	code += dest + (arg1 << 3);
 	return code;
 }
@@ -623,6 +714,46 @@ decrementESP(void)/*i;*/
 }
 
 /*e*/static void
+stackAbs(void)/*i;*/
+{
+	putMachineCode(armAsrsImm(2,0,31));
+	putMachineCode(armAdd3(0,0,2));
+	putMachineCode(armXor(0,2));
+}
+
+/*e*/static void
+stackAlloc(void)/*i;*/
+{
+	// save local in r3 and sp in r1
+	putMachineCode(armPush((1<<1)+(1<<3)));
+	stackCallWord((u32)zalloc);
+	// restore local in r3 and sp in r1
+	putMachineCode(armPop((1<<1)+(1<<3)));
+}
+
+/*e*/static void
+stackFree(void)/*i;*/
+{
+	// save local in r3 and sp in r1
+	putMachineCode(armPush((1<<1)+(1<<3)));
+	stackCallWord((u32)free);
+	// restore local in r3 and sp in r1
+	putMachineCode(armPop((1<<1)+(1<<3)));
+	popTos();
+}
+
+/*e*/static void
+stackPs(void)/*i;*/
+{
+	// save local in r3 and sp in r1
+	putMachineCode(armPush((1<<1)+(1<<3)));
+	stackCallWord((u32)io_printsn);
+	// restore local in r3 and sp in r1
+	putMachineCode(armPop((1<<1)+(1<<3)));
+	popTos();
+}
+
+/*e*/static void
 stackAdd(void)/*i;*/
 {
 	u32 prevCode = f.codeBuff[f.codeIndex-1];
@@ -723,6 +854,111 @@ stackRS(void)/*i;*/
 }
 
 /*e*/static void
+stackStr(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, re-write
+		f.codeIndex -= 3;
+		u32 val = (prevCode<<24)>>24;
+		prevCode = f.codeBuff[f.codeIndex-1];
+		if ( ((prevCode>>6) == 0x00) )
+		{
+			f.codeIndex -= 3;
+			u32 addr = prevCode>>3;
+			prevCode = f.codeBuff[f.codeIndex-1];
+			if ( ((prevCode>>6) == 0x00) )
+			{
+				f.codeIndex -= 3;
+				u32 data = prevCode>>3;
+				putMachineCode(armStrOffset(data, addr, val>>2));
+				return;
+			}
+			putMachineCode(armStrOffset(0, addr, val>>2));
+			popTos();
+			return;
+		}
+		popScratch();
+		putMachineCode(armStrOffset(2, 0, val>>2));
+		popTos();
+		return;
+	}
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 3;
+		u32 src = prevCode>>3;
+		prevCode = f.codeBuff[f.codeIndex-1];
+		if ( ((prevCode>>6) == 0x00) )
+		{
+			f.codeIndex -= 3;
+			u32 addr = prevCode>>3;
+			prevCode = f.codeBuff[f.codeIndex-1];
+			if ( ((prevCode>>6) == 0x00) )
+			{
+				f.codeIndex -= 3;
+				u32 data = prevCode>>3;
+				putMachineCode(armStrIndex(data, addr, src));
+				return;
+			}
+			putMachineCode(armStrIndex(0, addr, src));
+			popTos();
+			return;
+		}
+		popScratch();
+		putMachineCode(armStrIndex(2,0,src));
+		popTos();
+		return;
+	}
+	popScratch();
+	putMachineCode(armAdd3(0,0,2));
+	popScratch();
+	putMachineCode(armStrOffset(2,0,0));
+	popTos();
+}
+
+/*e*/static void
+stackLdr(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( (prevCode>>11) == 4)
+	{
+		// we just pushed a small constant, re-write
+		f.codeIndex -= 3;
+		u32 val = (prevCode<<24)>>24;
+		prevCode = f.codeBuff[f.codeIndex-1];
+		if ( ((prevCode>>6) == 0x00) )
+		{
+			f.codeIndex -= 1;
+			u32 addr = prevCode>>3;
+			putMachineCode(armLdrOffset(0, addr, val>>2));
+			return;
+		}
+		putMachineCode(armLdrOffset(0, 0, val>>2));
+		return;
+	}
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 3;
+		u32 src = prevCode>>3;
+		prevCode = f.codeBuff[f.codeIndex-1];
+		if ( ((prevCode>>6) == 0x00) )
+		{
+			f.codeIndex -= 1;
+			u32 addr = prevCode>>3;
+			putMachineCode(armLdrOffset(0, addr, src));
+			return;
+		}
+		putMachineCode(armLdrIndex(0,0,src));
+		return;
+	}
+	popScratch();
+	putMachineCode(armLdrIndex(0,2,0));
+}
+
+/*e*/static void
 stackMul(void)/*i;*/
 {
 	u32 prevCode = f.codeBuff[f.codeIndex-1];
@@ -787,6 +1023,26 @@ stackXor(void)/*i;*/
 }
 
 /*e*/static void
+stackLogicAnd(void)/*i;*/
+{
+	u32 prevCode = f.codeBuff[f.codeIndex-1];
+	if ( ((prevCode>>6) == 0x00) )
+	{
+		// we just pushed a local, re-write
+		f.codeIndex -= 3;
+		u32 src = prevCode>>3;
+		putMachineCode(armNeg(0, 0));
+		putMachineCode(armSbcs(0, 0));
+		putMachineCode(armAnd(0,src));
+		return;
+	}
+	popScratch();
+	putMachineCode(armNeg(0, 0));
+	putMachineCode(armSbcs(0, 0));
+	putMachineCode(armAnd(0, 2));
+}
+
+/*e*/static void
 stackNot(void)/*i;*/
 {
 	u32 prevCode = f.codeBuff[f.codeIndex-1];
@@ -801,6 +1057,10 @@ stackNot(void)/*i;*/
 	putMachineCode(armNot(0, 0));
 }
 
+
+// TODO use node->key[node->keyLen] to store flags about this word.
+// inline words that are 2 instructions or less (no code bloat)
+// use ONLY io_printsl(node->key, node->keyLen) to print key.
 /*e*/static void
 stackCallWord(u32 target)/*i;*/
 {
@@ -812,6 +1072,24 @@ stackCallWord(u32 target)/*i;*/
 	putMachineCode(ARM_NOP); putMachineCode(ARM_NOP);
 	new->target = target;
 	f.workList = list_append(new, f.workList);
+	f.notLeaf = 1;
+}
+
+/*e*/static void
+stackStringLit(u8 *string, u32 length)/*i;*/
+{
+	pushTos();
+	String *new = zalloc(sizeof(String));
+	new->string = string;
+	new->length = length;
+	io_printh((u32)string);
+	io_prints(" string\n");
+	io_printi((u32)length);
+	io_prints(" length\n");
+	new->codeIndex = f.codeIndex;
+	putMachineCode(ARM_NOP);
+	//~ putMachineCode(armAdr(0, 1));
+	f.stringLits = list_append(new, f.stringLits);
 }
 
 /*e*/static void
@@ -1054,7 +1332,6 @@ speakWord(u8 *word, s32 length)/*i;*/
 	if (node)
 	{
 		stackCallWord((u32)node->value);
-		f.notLeaf = 1;
 	}
 	node = avl_find(f.locals, word, length);
 	if (node)
@@ -1070,6 +1347,35 @@ completeWord(void)/*i;*/
 	u32 index = f.codeIndex;
 	putMachineCode(armPopFuncEnd(f.li));
 	f.codeBuff[0] = armPushFuncStart(f.li);
+	// process constants
+	while (f.stringLits)
+	{
+		String *todo = list_removeFirst(&f.stringLits);
+		u32 lengthIncNull = todo->length + 2;
+		u32 pad = lengthIncNull >> 1;
+		io_printi(f.codeIndex);
+		io_prints("\n");
+		if (f.codeIndex & 1) { putMachineCode(0); }
+		u32 stringIndex = f.codeIndex;
+		u8* stringStart =  (u8*)&f.codeBuff[f.codeIndex];
+		u16 *cursor = &f.codeBuff[todo->codeIndex];
+		u32 alignPC = (((u32)cursor + 4) >> 2) << 2;
+		*cursor = armAdr(0, ((u32)stringStart - alignPC) >>2);
+		//~ io_printi(((u32)stringStart - alignPC) >>2);
+		//~ io_prints("\n");
+		// insert needed space
+		for (u32 i = 0; i < pad; i++) {
+			putMachineCode(0);
+		}
+		// copy string
+		u8 *string = todo->string;
+		stringStart =  (u8*)&f.codeBuff[stringIndex];
+		for (u32 i = 0; i < todo->length; i++) {
+			stringStart[i] = string[i];
+		}
+		free(todo);
+	}
+	
 	while (f.workList)
 	{
 		Work *todo = list_removeFirst(&f.workList);
